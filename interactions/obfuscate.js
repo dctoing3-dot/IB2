@@ -8,11 +8,11 @@ const tmp = require('tmp');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('obfuscate')
-        .setDescription('Obfuscate Lua script dengan IronBrew2')
+        .setDescription('Obfuscate a Lua script using IronBrew2')
         .addAttachmentOption(option =>
             option
                 .setName('script')
-                .setDescription('Upload file .lua')
+                .setDescription('Upload your .lua file')
                 .setRequired(true)
         ),
 
@@ -25,19 +25,19 @@ module.exports = {
             return interaction.editReply({
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle('❌ Error')
-                        .setDescription('File harus berformat `.lua`!')
+                        .setTitle('❌ Invalid File')
+                        .setDescription('File harus berformat **`.lua`**!')
                         .setColor('#ff0000')
                 ]
             });
         }
 
-        if (attachment.size > 1000000) {
+        if (attachment.size > 500000) {
             return interaction.editReply({
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle('❌ Error')
-                        .setDescription('File terlalu besar! Maksimal 1MB.')
+                        .setTitle('❌ File Too Large')
+                        .setDescription('File terlalu besar! Maksimal **500KB**.')
                         .setColor('#ff0000')
                 ]
             });
@@ -47,37 +47,58 @@ module.exports = {
             const response = await fetch(attachment.url);
             const scriptContent = await response.text();
 
-            const inputFile = tmp.fileSync({ suffix: '.lua' });
-            const outputFile = tmp.fileSync({ suffix: '.lua' });
-
-            fs.writeFileSync(inputFile.name, scriptContent);
-
-            const ironbrewPath = path.join(__dirname, '..', 'IronBrew2.CLI', 'IronBrew2.CLI.dll');
-
-            if (!fs.existsSync(ironbrewPath)) {
-                inputFile.removeCallback();
-                outputFile.removeCallback();
+            if (!scriptContent || scriptContent.trim().length === 0) {
                 return interaction.editReply({
                     embeds: [
                         new EmbedBuilder()
-                            .setTitle('❌ Error')
+                            .setTitle('❌ Empty File')
+                            .setDescription('File Lua kosong!')
+                            .setColor('#ff0000')
+                    ]
+                });
+            }
+
+            const inputFile = tmp.fileSync({ suffix: '.lua' });
+            const outputFile = tmp.fileSync({ suffix: '.lua' });
+
+            fs.writeFileSync(inputFile.name, scriptContent, 'utf8');
+
+            // Path ke IronBrew2 - SESUAI STRUKTUR REPO KAMU
+            const ironbrewPath = path.join(__dirname, '..', 'Source', 'IronBrew2 CLI.dll');
+
+            if (!fs.existsSync(ironbrewPath)) {
+                console.error('IronBrew2 not found at:', ironbrewPath);
+                inputFile.removeCallback();
+                outputFile.removeCallback();
+                
+                return interaction.editReply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('❌ Configuration Error')
                             .setDescription('IronBrew2 tidak ditemukan!')
                             .setColor('#ff0000')
                     ]
                 });
             }
 
-            const command = `dotnet "${ironbrewPath}" "${inputFile.name}" "${outputFile.name}"`;
+            // Jalankan IronBrew2 (pakai quotes karena ada spasi di nama file)
+            const command = `dotnet "${ironbrewPath}" "${inputFile.name}" --output "${outputFile.name}"`;
+            
+            console.log('Executing:', command);
 
-            exec(command, { timeout: 60000 }, async (error, stdout, stderr) => {
+            exec(command, { timeout: 120000 }, async (error, stdout, stderr) => {
+                if (stdout) console.log('stdout:', stdout);
+                if (stderr) console.log('stderr:', stderr);
+
                 if (error) {
-                    console.error('Error:', stderr || error.message);
+                    console.error('Error:', error.message);
                     inputFile.removeCallback();
                     outputFile.removeCallback();
+                    
                     return interaction.editReply({
                         embeds: [
                             new EmbedBuilder()
-                                .setTitle('❌ Obfuscation Error')
+                                .setTitle('❌ Obfuscation Failed')
                                 .setDescription(`\`\`\`${stderr || error.message}\`\`\``)
                                 .setColor('#ff0000')
                         ]
@@ -87,10 +108,11 @@ module.exports = {
                 if (!fs.existsSync(outputFile.name)) {
                     inputFile.removeCallback();
                     outputFile.removeCallback();
+                    
                     return interaction.editReply({
                         embeds: [
                             new EmbedBuilder()
-                                .setTitle('❌ Error')
+                                .setTitle('❌ Output Error')
                                 .setDescription('Gagal generate output!')
                                 .setColor('#ff0000')
                         ]
@@ -99,6 +121,20 @@ module.exports = {
 
                 const result = fs.readFileSync(outputFile.name);
 
+                if (result.length === 0) {
+                    inputFile.removeCallback();
+                    outputFile.removeCallback();
+                    
+                    return interaction.editReply({
+                        embeds: [
+                            new EmbedBuilder()
+                                .setTitle('❌ Output Empty')
+                                .setDescription('Output kosong!')
+                                .setColor('#ff0000')
+                        ]
+                    });
+                }
+
                 const outputAttachment = new AttachmentBuilder(result, {
                     name: `obfuscated_${attachment.name}`
                 });
@@ -106,8 +142,11 @@ module.exports = {
                 await interaction.editReply({
                     embeds: [
                         new EmbedBuilder()
-                            .setTitle('✅ Obfuscation Berhasil!')
-                            .setDescription(`📁 File: \`${attachment.name}\`\n📦 Size: ${result.length} bytes`)
+                            .setTitle('✅ Obfuscation Successful!')
+                            .addFields(
+                                { name: '📁 Original', value: `${attachment.size} bytes`, inline: true },
+                                { name: '📦 Obfuscated', value: `${result.length} bytes`, inline: true }
+                            )
                             .setColor('#00ff00')
                             .setTimestamp()
                     ],
@@ -119,12 +158,12 @@ module.exports = {
             });
 
         } catch (error) {
-            console.error(error);
+            console.error('Error:', error);
             return interaction.editReply({
                 embeds: [
                     new EmbedBuilder()
                         .setTitle('❌ Error')
-                        .setDescription(error.message)
+                        .setDescription(`\`\`\`${error.message}\`\`\``)
                         .setColor('#ff0000')
                 ]
             });
