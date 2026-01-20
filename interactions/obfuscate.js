@@ -19,89 +19,90 @@ module.exports = {
     async execute(interaction, member, client) {
         await interaction.deferReply();
 
-        // ============ DEBUG: CEK STRUKTUR FOLDER ============
         const appDir = path.join(__dirname, '..');
-        console.log('==================== DEBUG ====================');
-        console.log('Current directory (__dirname):', __dirname);
-        console.log('App directory:', appDir);
         
-        // List semua folder/file di root app
-        console.log('\n📁 Files in app root:');
-        try {
-            const rootFiles = fs.readdirSync(appDir);
-            rootFiles.forEach(f => {
-                const fullPath = path.join(appDir, f);
-                const isDir = fs.statSync(fullPath).isDirectory();
-                console.log(`  ${isDir ? '📁' : '📄'} ${f}`);
-            });
-        } catch (e) {
-            console.log('Error reading app dir:', e.message);
+        // Cek isi folder Ib2 untuk cari file .dll
+        const ib2Dir = path.join(appDir, 'Ib2');
+        
+        console.log('Checking Ib2 folder:', ib2Dir);
+        console.log('Ib2 exists?:', fs.existsSync(ib2Dir));
+        
+        if (fs.existsSync(ib2Dir)) {
+            console.log('Files in Ib2:');
+            fs.readdirSync(ib2Dir).forEach(f => console.log(`  - ${f}`));
         }
 
-        // Cek folder Source
-        const sourceDir = path.join(appDir, 'Source');
-        console.log('\n📁 Checking "Source" folder:', sourceDir);
-        console.log('Source exists?:', fs.existsSync(sourceDir));
-        
-        if (fs.existsSync(sourceDir)) {
-            console.log('Files in Source:');
-            const sourceFiles = fs.readdirSync(sourceDir);
-            sourceFiles.forEach(f => console.log(`  - ${f}`));
-        }
-
-        // Cek kemungkinan path lain
+        // Kemungkinan path ke IronBrew2
         const possiblePaths = [
-            path.join(appDir, 'Source', 'IronBrew2 CLI.dll'),
-            path.join(appDir, 'Source', 'IronBrew2.CLI.dll'),
-            path.join(appDir, 'Source', 'IronBrew2CLI.dll'),
-            path.join(appDir, 'IronBrew2 CLI.dll'),
-            path.join(appDir, 'IronBrew2.CLI.dll'),
-            path.join(appDir, 'IronBrew2', 'IronBrew2 CLI.dll'),
-            path.join(appDir, 'IronBrew2.CLI', 'IronBrew2.CLI.dll'),
+            path.join(appDir, 'Ib2', 'IronBrew2 CLI.dll'),
+            path.join(appDir, 'Ib2', 'IronBrew2.CLI.dll'),
+            path.join(appDir, 'Ib2', 'IronBrew2CLI.dll'),
+            path.join(appDir, 'Ib2', 'Source', 'IronBrew2 CLI.dll'),
+            path.join(appDir, 'Ib2', 'Source', 'IronBrew2.CLI.dll'),
         ];
 
-        console.log('\n🔍 Checking possible paths:');
-        let foundPath = null;
+        let ironbrewPath = null;
         for (const p of possiblePaths) {
-            const exists = fs.existsSync(p);
-            console.log(`  ${exists ? '✅' : '❌'} ${p}`);
-            if (exists && !foundPath) {
-                foundPath = p;
+            if (fs.existsSync(p)) {
+                ironbrewPath = p;
+                break;
             }
         }
 
-        console.log('\n✅ Found path:', foundPath);
-        console.log('================================================');
-        // ============ END DEBUG ============
+        // Jika tidak ketemu, cari semua .dll di folder Ib2
+        if (!ironbrewPath && fs.existsSync(ib2Dir)) {
+            const findDll = (dir) => {
+                const files = fs.readdirSync(dir);
+                for (const file of files) {
+                    const fullPath = path.join(dir, file);
+                    const stat = fs.statSync(fullPath);
+                    if (stat.isDirectory()) {
+                        const found = findDll(fullPath);
+                        if (found) return found;
+                    } else if (file.toLowerCase().includes('ironbrew') && file.endsWith('.dll')) {
+                        return fullPath;
+                    }
+                }
+                return null;
+            };
+            ironbrewPath = findDll(ib2Dir);
+        }
 
-        // Kirim info debug ke Discord juga
-        if (!foundPath) {
-            // List semua folder untuk debug
-            let debugInfo = '**App Directory:** `' + appDir + '`\n\n';
-            debugInfo += '**Files in root:**\n```\n';
-            try {
-                const rootFiles = fs.readdirSync(appDir);
-                rootFiles.forEach(f => {
-                    const fullPath = path.join(appDir, f);
-                    const isDir = fs.statSync(fullPath).isDirectory();
-                    debugInfo += `${isDir ? '[DIR] ' : '      '} ${f}\n`;
-                });
-            } catch (e) {
-                debugInfo += 'Error: ' + e.message;
-            }
+        // Jika masih tidak ketemu, tampilkan isi folder
+        if (!ironbrewPath) {
+            let debugInfo = '**Isi folder Ib2:**\n```\n';
+            
+            const listDir = (dir, indent = '') => {
+                if (!fs.existsSync(dir)) return;
+                const files = fs.readdirSync(dir);
+                for (const file of files) {
+                    const fullPath = path.join(dir, file);
+                    const stat = fs.statSync(fullPath);
+                    if (stat.isDirectory()) {
+                        debugInfo += `${indent}[DIR] ${file}\n`;
+                        listDir(fullPath, indent + '  ');
+                    } else {
+                        debugInfo += `${indent}      ${file}\n`;
+                    }
+                }
+            };
+            
+            listDir(ib2Dir);
             debugInfo += '```';
 
             return interaction.editReply({
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle('❌ IronBrew2 Not Found - Debug Info')
+                        .setTitle('❌ IronBrew2 DLL Not Found')
                         .setDescription(debugInfo)
                         .setColor('#ff0000')
                 ]
             });
         }
 
-        // Lanjut proses obfuscate jika path ditemukan
+        console.log('Using IronBrew2 path:', ironbrewPath);
+
+        // Validasi file
         const attachment = interaction.options.getAttachment('script');
 
         if (!attachment.name.endsWith('.lua')) {
@@ -115,16 +116,38 @@ module.exports = {
             });
         }
 
+        if (attachment.size > 500000) {
+            return interaction.editReply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('❌ File Too Large')
+                        .setDescription('Maksimal **500KB**!')
+                        .setColor('#ff0000')
+                ]
+            });
+        }
+
         try {
             const response = await fetch(attachment.url);
             const scriptContent = await response.text();
+
+            if (!scriptContent.trim()) {
+                return interaction.editReply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle('❌ Empty File')
+                            .setDescription('File Lua kosong!')
+                            .setColor('#ff0000')
+                    ]
+                });
+            }
 
             const inputFile = tmp.fileSync({ suffix: '.lua' });
             const outputFile = tmp.fileSync({ suffix: '.lua' });
 
             fs.writeFileSync(inputFile.name, scriptContent, 'utf8');
 
-            const command = `dotnet "${foundPath}" "${inputFile.name}" --output "${outputFile.name}"`;
+            const command = `dotnet "${ironbrewPath}" "${inputFile.name}" --output "${outputFile.name}"`;
             console.log('Executing:', command);
 
             exec(command, { timeout: 120000 }, async (error, stdout, stderr) => {
@@ -145,7 +168,7 @@ module.exports = {
                     });
                 }
 
-                if (!fs.existsSync(outputFile.name) || fs.readFileSync(outputFile.name).length === 0) {
+                if (!fs.existsSync(outputFile.name)) {
                     inputFile.removeCallback();
                     outputFile.removeCallback();
                     
@@ -160,6 +183,20 @@ module.exports = {
                 }
 
                 const result = fs.readFileSync(outputFile.name);
+
+                if (result.length === 0) {
+                    inputFile.removeCallback();
+                    outputFile.removeCallback();
+                    
+                    return interaction.editReply({
+                        embeds: [
+                            new EmbedBuilder()
+                                .setTitle('❌ Output Empty')
+                                .setDescription('Output kosong!')
+                                .setColor('#ff0000')
+                        ]
+                    });
+                }
 
                 const outputAttachment = new AttachmentBuilder(result, {
                     name: `obfuscated_${attachment.name}`
