@@ -19,6 +19,89 @@ module.exports = {
     async execute(interaction, member, client) {
         await interaction.deferReply();
 
+        // ============ DEBUG: CEK STRUKTUR FOLDER ============
+        const appDir = path.join(__dirname, '..');
+        console.log('==================== DEBUG ====================');
+        console.log('Current directory (__dirname):', __dirname);
+        console.log('App directory:', appDir);
+        
+        // List semua folder/file di root app
+        console.log('\n📁 Files in app root:');
+        try {
+            const rootFiles = fs.readdirSync(appDir);
+            rootFiles.forEach(f => {
+                const fullPath = path.join(appDir, f);
+                const isDir = fs.statSync(fullPath).isDirectory();
+                console.log(`  ${isDir ? '📁' : '📄'} ${f}`);
+            });
+        } catch (e) {
+            console.log('Error reading app dir:', e.message);
+        }
+
+        // Cek folder Source
+        const sourceDir = path.join(appDir, 'Source');
+        console.log('\n📁 Checking "Source" folder:', sourceDir);
+        console.log('Source exists?:', fs.existsSync(sourceDir));
+        
+        if (fs.existsSync(sourceDir)) {
+            console.log('Files in Source:');
+            const sourceFiles = fs.readdirSync(sourceDir);
+            sourceFiles.forEach(f => console.log(`  - ${f}`));
+        }
+
+        // Cek kemungkinan path lain
+        const possiblePaths = [
+            path.join(appDir, 'Source', 'IronBrew2 CLI.dll'),
+            path.join(appDir, 'Source', 'IronBrew2.CLI.dll'),
+            path.join(appDir, 'Source', 'IronBrew2CLI.dll'),
+            path.join(appDir, 'IronBrew2 CLI.dll'),
+            path.join(appDir, 'IronBrew2.CLI.dll'),
+            path.join(appDir, 'IronBrew2', 'IronBrew2 CLI.dll'),
+            path.join(appDir, 'IronBrew2.CLI', 'IronBrew2.CLI.dll'),
+        ];
+
+        console.log('\n🔍 Checking possible paths:');
+        let foundPath = null;
+        for (const p of possiblePaths) {
+            const exists = fs.existsSync(p);
+            console.log(`  ${exists ? '✅' : '❌'} ${p}`);
+            if (exists && !foundPath) {
+                foundPath = p;
+            }
+        }
+
+        console.log('\n✅ Found path:', foundPath);
+        console.log('================================================');
+        // ============ END DEBUG ============
+
+        // Kirim info debug ke Discord juga
+        if (!foundPath) {
+            // List semua folder untuk debug
+            let debugInfo = '**App Directory:** `' + appDir + '`\n\n';
+            debugInfo += '**Files in root:**\n```\n';
+            try {
+                const rootFiles = fs.readdirSync(appDir);
+                rootFiles.forEach(f => {
+                    const fullPath = path.join(appDir, f);
+                    const isDir = fs.statSync(fullPath).isDirectory();
+                    debugInfo += `${isDir ? '[DIR] ' : '      '} ${f}\n`;
+                });
+            } catch (e) {
+                debugInfo += 'Error: ' + e.message;
+            }
+            debugInfo += '```';
+
+            return interaction.editReply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle('❌ IronBrew2 Not Found - Debug Info')
+                        .setDescription(debugInfo)
+                        .setColor('#ff0000')
+                ]
+            });
+        }
+
+        // Lanjut proses obfuscate jika path ditemukan
         const attachment = interaction.options.getAttachment('script');
 
         if (!attachment.name.endsWith('.lua')) {
@@ -32,66 +115,23 @@ module.exports = {
             });
         }
 
-        if (attachment.size > 500000) {
-            return interaction.editReply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setTitle('❌ File Too Large')
-                        .setDescription('File terlalu besar! Maksimal **500KB**.')
-                        .setColor('#ff0000')
-                ]
-            });
-        }
-
         try {
             const response = await fetch(attachment.url);
             const scriptContent = await response.text();
-
-            if (!scriptContent || scriptContent.trim().length === 0) {
-                return interaction.editReply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle('❌ Empty File')
-                            .setDescription('File Lua kosong!')
-                            .setColor('#ff0000')
-                    ]
-                });
-            }
 
             const inputFile = tmp.fileSync({ suffix: '.lua' });
             const outputFile = tmp.fileSync({ suffix: '.lua' });
 
             fs.writeFileSync(inputFile.name, scriptContent, 'utf8');
 
-            // Path ke IronBrew2 - SESUAI STRUKTUR REPO KAMU
-            const ironbrewPath = path.join(__dirname, '..', 'Source', 'IronBrew2 CLI.dll');
-
-            if (!fs.existsSync(ironbrewPath)) {
-                console.error('IronBrew2 not found at:', ironbrewPath);
-                inputFile.removeCallback();
-                outputFile.removeCallback();
-                
-                return interaction.editReply({
-                    embeds: [
-                        new EmbedBuilder()
-                            .setTitle('❌ Configuration Error')
-                            .setDescription('IronBrew2 tidak ditemukan!')
-                            .setColor('#ff0000')
-                    ]
-                });
-            }
-
-            // Jalankan IronBrew2 (pakai quotes karena ada spasi di nama file)
-            const command = `dotnet "${ironbrewPath}" "${inputFile.name}" --output "${outputFile.name}"`;
-            
+            const command = `dotnet "${foundPath}" "${inputFile.name}" --output "${outputFile.name}"`;
             console.log('Executing:', command);
 
             exec(command, { timeout: 120000 }, async (error, stdout, stderr) => {
-                if (stdout) console.log('stdout:', stdout);
-                if (stderr) console.log('stderr:', stderr);
+                console.log('stdout:', stdout);
+                console.log('stderr:', stderr);
 
                 if (error) {
-                    console.error('Error:', error.message);
                     inputFile.removeCallback();
                     outputFile.removeCallback();
                     
@@ -105,7 +145,7 @@ module.exports = {
                     });
                 }
 
-                if (!fs.existsSync(outputFile.name)) {
+                if (!fs.existsSync(outputFile.name) || fs.readFileSync(outputFile.name).length === 0) {
                     inputFile.removeCallback();
                     outputFile.removeCallback();
                     
@@ -120,20 +160,6 @@ module.exports = {
                 }
 
                 const result = fs.readFileSync(outputFile.name);
-
-                if (result.length === 0) {
-                    inputFile.removeCallback();
-                    outputFile.removeCallback();
-                    
-                    return interaction.editReply({
-                        embeds: [
-                            new EmbedBuilder()
-                                .setTitle('❌ Output Empty')
-                                .setDescription('Output kosong!')
-                                .setColor('#ff0000')
-                        ]
-                    });
-                }
 
                 const outputAttachment = new AttachmentBuilder(result, {
                     name: `obfuscated_${attachment.name}`
