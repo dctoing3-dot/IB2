@@ -19,90 +19,23 @@ module.exports = {
     async execute(interaction, member, client) {
         await interaction.deferReply();
 
-        const appDir = path.join(__dirname, '..');
-        
-        // Cek isi folder Ib2 untuk cari file .dll
-        const ib2Dir = path.join(appDir, 'Ib2');
-        
-        console.log('Checking Ib2 folder:', ib2Dir);
-        console.log('Ib2 exists?:', fs.existsSync(ib2Dir));
-        
-        if (fs.existsSync(ib2Dir)) {
-            console.log('Files in Ib2:');
-            fs.readdirSync(ib2Dir).forEach(f => console.log(`  - ${f}`));
-        }
+        // PATH YANG BENAR
+        const ironbrewPath = path.join(__dirname, '..', 'Ib2', 'Source', 'IronBrew2 CLI.dll');
 
-        // Kemungkinan path ke IronBrew2
-        const possiblePaths = [
-            path.join(appDir, 'Ib2', 'IronBrew2 CLI.dll'),
-            path.join(appDir, 'Ib2', 'IronBrew2.CLI.dll'),
-            path.join(appDir, 'Ib2', 'IronBrew2CLI.dll'),
-            path.join(appDir, 'Ib2', 'Source', 'IronBrew2 CLI.dll'),
-            path.join(appDir, 'Ib2', 'Source', 'IronBrew2.CLI.dll'),
-        ];
+        console.log('IronBrew2 path:', ironbrewPath);
+        console.log('Exists:', fs.existsSync(ironbrewPath));
 
-        let ironbrewPath = null;
-        for (const p of possiblePaths) {
-            if (fs.existsSync(p)) {
-                ironbrewPath = p;
-                break;
-            }
-        }
-
-        // Jika tidak ketemu, cari semua .dll di folder Ib2
-        if (!ironbrewPath && fs.existsSync(ib2Dir)) {
-            const findDll = (dir) => {
-                const files = fs.readdirSync(dir);
-                for (const file of files) {
-                    const fullPath = path.join(dir, file);
-                    const stat = fs.statSync(fullPath);
-                    if (stat.isDirectory()) {
-                        const found = findDll(fullPath);
-                        if (found) return found;
-                    } else if (file.toLowerCase().includes('ironbrew') && file.endsWith('.dll')) {
-                        return fullPath;
-                    }
-                }
-                return null;
-            };
-            ironbrewPath = findDll(ib2Dir);
-        }
-
-        // Jika masih tidak ketemu, tampilkan isi folder
-        if (!ironbrewPath) {
-            let debugInfo = '**Isi folder Ib2:**\n```\n';
-            
-            const listDir = (dir, indent = '') => {
-                if (!fs.existsSync(dir)) return;
-                const files = fs.readdirSync(dir);
-                for (const file of files) {
-                    const fullPath = path.join(dir, file);
-                    const stat = fs.statSync(fullPath);
-                    if (stat.isDirectory()) {
-                        debugInfo += `${indent}[DIR] ${file}\n`;
-                        listDir(fullPath, indent + '  ');
-                    } else {
-                        debugInfo += `${indent}      ${file}\n`;
-                    }
-                }
-            };
-            
-            listDir(ib2Dir);
-            debugInfo += '```';
-
+        if (!fs.existsSync(ironbrewPath)) {
             return interaction.editReply({
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle('❌ IronBrew2 DLL Not Found')
-                        .setDescription(debugInfo)
+                        .setTitle('❌ Configuration Error')
+                        .setDescription(`IronBrew2 tidak ditemukan!\nPath: \`${ironbrewPath}\``)
                         .setColor('#ff0000')
                 ]
             });
         }
 
-        console.log('Using IronBrew2 path:', ironbrewPath);
-
-        // Validasi file
         const attachment = interaction.options.getAttachment('script');
 
         if (!attachment.name.endsWith('.lua')) {
